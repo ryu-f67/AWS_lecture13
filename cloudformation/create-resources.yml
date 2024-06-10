@@ -254,4 +254,4 @@ Outputs:
     Value: !Ref S3bucketname
   ALBendpoint:
     Value: !GetAtt ALB.DNSName
-  
+
