@@ -1,0 +1,14 @@
+---
+# tasks file for bundler
+- name: check if bundler is installed
+  ansible.builtin.shell: bash -lc "bundle -v"
+  register: check_bundler
+  changed_when: no
+  ignore_errors: yes
+  become: no
+
+- name: install bundler
+  ansible.builtin.shell: bash -lc "gem install bundler -v {{ bundle_version }}"
+  become: no
+  when: check_bundler is failed
+  

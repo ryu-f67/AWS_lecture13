@@ -2,6 +2,7 @@ version: 2.1
 orbs:
   aws-cli: circleci/aws-cli@4.1.3
   aws-cloudformation: orbss/aws-cloudformation@0.1.6
+  ansible-playbook: orbss/ansible-playbook@0.0.5
 
 parameters:
   NameBase:
@@ -28,8 +29,47 @@ jobs:
           template-file-path: "cloudformation/create-resources.yml"
           parameter-overrides: "RDSpassword=$AWS_DB_PW"
           capabilities: CAPABILITY_NAMED_IAM
-            
+      - run:
+          name: store AWS vars to ENV vars
+          command: |
+            set -x
+            echo export AWS_EC2_PUBLIC=$(aws cloudformation describe-stacks --stack-name <<pipeline.parameters.NameBase>>-resources-stack --query 'Stacks[].Outputs[?OutputKey==`EC2publicIP`].OutputValue' --output text) >> $BASH_ENV
+            echo export AWS_DB_USER=$(aws cloudformation describe-stacks --stack-name <<pipeline.parameters.NameBase>>-resources-stack --query 'Stacks[].Outputs[?OutputKey==`DBuser`].OutputValue' --output text) >> $BASH_ENV
+            echo export AWS_DB_PW=$(aws cloudformation describe-stacks --stack-name <<pipeline.parameters.NameBase>>-resources-stack --query 'Stacks[].Outputs[?OutputKey==`DBpassword`].OutputValue' --output text) >> $BASH_ENV
+            echo export AWS_DB_HOST=$(aws cloudformation describe-stacks --stack-name <<pipeline.parameters.NameBase>>-resources-stack --query 'Stacks[].Outputs[?OutputKey==`DBhost`].OutputValue' --output text) >> $BASH_ENV
+            echo export AWS_S3_BUCKET=$(aws cloudformation describe-stacks --stack-name <<pipeline.parameters.NameBase>>-resources-stack --query 'Stacks[].Outputs[?OutputKey==`S3bucketName`].OutputValue' --output text) >> $BASH_ENV
+            echo export AWS_ALB_HOST=$(aws cloudformation describe-stacks --stack-name <<pipeline.parameters.NameBase>>-resources-stack --query 'Stacks[].Outputs[?OutputKey==`ALBendpoint`].OutputValue' --output text) >> $BASH_ENV
+            source "$BASH_ENV"
+      - run:
+          command: 
+            cp $BASH_ENV bash.env
+      - persist_to_workspace:
+          root: .
+          paths:
+            - bash.env
+  execute-ansible:
+    executor: ansible-playbook/default
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          command: 
+            cat bash.env >> $BASH_ENV
+      - add_ssh_keys:
+          fingerprints:
+            - SHA256:we33W0k6+heNTP5CCOwGXjm3kLkdzXPtJamMSH7bIio
+      - ansible-playbook/install:
+          version: 2.9.23
+      - run:
+          name: run ansible-playbook
+          command: ansible-playbook -i ${AWS_EC2_PUBLIC}, ansible/playbook.yml
+          no_output_timeout: 30m
+
 workflows:
   lecture13:
     jobs:
       - execute-cfn
+      - execute-ansible:
+          requires:
+            - execute-cfn

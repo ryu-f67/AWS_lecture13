@@ -1,0 +1,14 @@
+---
+# tasks file for rails
+- name: check if rails is installed
+  ansible.builtin.shell: bash -lc "rails -v"
+  register: check_rails
+  changed_when: no
+  ignore_errors: yes
+  become: no
+
+- name: install rails
+  ansible.builtin.shell: bash -lc "gem install rails -v {{ rails_version }}"
+  become: no
+  when: check_rails is failed
+  

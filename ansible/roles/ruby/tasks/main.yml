@@ -1,0 +1,92 @@
+---
+# tasks file for ruby
+- name: check if rbenv is installed
+  ansible.builtin.shell: bash -lc "rbenv -v"
+  register: check_rbenv
+  changed_when: no
+  ignore_errors: yes
+  become: no
+
+- name: install rbenv
+  ansible.builtin.git:
+    repo: https://github.com/rbenv/rbenv.git
+    dest: /home/{{ ansible_user }}/.rbenv
+  become: no
+  when: check_rbenv is failed
+
+- name: add rbenv to PATH
+  ansible.builtin.lineinfile: 
+    path: /home/{{ ansible_user }}/.bash_profile
+    line: 'export PATH="$HOME/.rbenv/bin:$PATH"'
+    create: yes
+  become: no
+  when: check_rbenv is failed
+
+- name: eval rbenv init
+  ansible.builtin.lineinfile: 
+    path: /home/{{ ansible_user }}/.bash_profile
+    line: 'eval "$(rbenv init -)"'
+    create: yes
+  become: no
+  when: check_rbenv is failed
+
+- name: load .bash_profile
+  ansible.builtin.shell: source /home/{{ ansible_user }}/.bash_profile
+  become: no
+  when: check_rbenv is failed
+
+- name: install ruby-build
+  ansible.builtin.git:
+    repo: https://github.com/rbenv/ruby-build.git
+    dest: /home/{{ ansible_user }}/.rbenv/plugins/ruby-build
+  become: no
+  when: check_rbenv is failed
+
+- name: load .bash_profile
+  ansible.builtin.shell: /home/{{ ansible_user }}/.rbenv/plugins/ruby-build/install.sh
+  when: check_rbenv is failed
+
+- name: check if ruby is installed
+  ansible.builtin.shell: bash -lc "ruby -v"
+  register: check_ruby
+  changed_when: no
+  ignore_errors: yes
+  become: no
+
+- name: install dependancies packages for ruby
+  ansible.builtin.yum:
+    name: "{{ ruby_dependencies_pkg }}"
+    state: present
+  vars:
+    ruby_dependencies_pkg:
+      - make
+      - patch
+      - gcc-c++
+      - glibc-headers
+      - openssl-devel
+      - readline
+      - libyaml-devel
+      - readline-devel
+      - zlib
+      - zlib-devel
+      - libffi-devel
+      - libxml2
+      - libxslt
+      - libxml2-devel
+      - libxslt-devel
+      - sqlite-devel
+      - ImageMagick
+      - ImageMagick-devel
+      - libcurl
+      - libcurl-devel
+      - curl
+
+- name: install ruby
+  ansible.builtin.shell: bash -lc "rbenv install {{ ruby_version }}"
+  become: no
+  when: check_ruby is failed
+
+- name: global ruby version
+  ansible.builtin.shell: bash -lc "rbenv global {{ ruby_version }}"
+  become: no
+  when: check_ruby is failed

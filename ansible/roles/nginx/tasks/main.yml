@@ -1,0 +1,10 @@
+---
+# tasks file for nginx
+- name: install nginx
+  ansible.builtin.shell: amazon-linux-extras install nginx1 -y
+  args:
+    chdir: /home/{{ ansible_user }}/raisetech-live8-sample-app
+
+- name: change permission /var/lib/nginx
+  shell: chown -R {{ ansible_user }} /var/lib/nginx
+  

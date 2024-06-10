@@ -1,0 +1,7 @@
+---
+# tasks file for bin_setup
+- name: bin/setup
+  shell: bash -lc "bin/setup"
+  args: 
+    chdir: /home/ec2-user/raisetech-live8-sample-app
+  become: no
