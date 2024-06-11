@@ -1,0 +1,20 @@
+---
+# tasks file for yarn
+- name: check if yarn is installed
+  ansible.builtin.shell: bash -lc "yarn -v"
+  register: check_yarn
+  changed_when: no
+  ignore_errors: yes
+  become: no
+
+- name: install yarn
+  shell: npm install --global yarn@{{ yarn_version }}
+  become: no
+  when: check_yarn is failed
+
+- name: yarn add yarn
+  shell: yarn add yarn
+  args:
+    chdir: /home/{{ ansible_user }}/raisetech-live8-sample-app
+  become: no
+  when: check_yarn is failed

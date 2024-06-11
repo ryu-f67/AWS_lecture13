@@ -1,0 +1,94 @@
+---
+# tasks file for setup_server
+- name: create sockets directory
+  ansible.builtin.file:
+    path: /home/{{ ansible_user }}/raisetech-live8-sample-app/tmp/sockets
+    state: directory
+    mode: '0755'
+  become: no
+
+- name: create pids directory
+  ansible.builtin.file:
+    path: /home/{{ ansible_user }}/raisetech-live8-sample-app/tmp/pids
+    state: directory
+    mode: '0755'
+  become: no
+
+- name: deploy storage.yml
+  ansible.builtin.template:
+    src: templates/storage.yml.j2
+    dest: /home/{{ ansible_user }}/raisetech-live8-sample-app/config/storage.yml
+  become: no
+
+- name: deploy puma.service
+  ansible.builtin.template:
+    src: templates/puma.service.j2
+    dest: /etc/systemd/system/puma.service
+
+- name: deploy puma.rb
+  ansible.builtin.template:
+    src: templates/puma.rb.j2
+    dest: /home/{{ ansible_user }}/raisetech-live8-sample-app/config/puma.rb
+
+- name: deploy development.rb
+  ansible.builtin.template:
+    src: templates/development.rb.j2
+    dest: /home/{{ ansible_user }}/raisetech-live8-sample-app/config/environments/development.rb
+
+- name: deploy application.rb
+  ansible.builtin.template:
+    src: templates/application.rb.j2
+    dest: /home/{{ ansible_user }}/raisetech-live8-sample-app/config/environments/application.rb
+
+- name: deploy nginx.conf
+  ansible.builtin.template:
+    src: templates/nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+
+- name: assets compile
+  ansible.builtin.shell: bash -lc "bin/rails assets:precompile"
+  args:
+    chdir: /home/{{ ansible_user }}/raisetech-live8-sample-app
+  become: no
+
+- name: check if vips is installed
+  ansible.builtin.shell: bash -lc "vips --version"
+  register: check_vips
+  changed_when: no
+  ignore_errors: yes
+  become: no
+
+- name: install vips package(1)
+  ansible.builtin.yum: 
+    name: https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+  when: check_vips is failed
+
+- name: install vips package(2)
+  ansible.builtin.yum:
+    name: http://rpms.remirepo.net/enterprise/remi-release-7.rpm
+  when: check_vips is failed
+  
+- name: install vips package(3)
+  ansible.builtin.shell: bash -lc "yum-config-manager --enable remi"
+  when: check_vips is failed
+
+- name: install vips package(4)
+  ansible.builtin.yum:
+    name: "{{vips_pkgs}}"
+    state: present
+  vars:
+    vips_pkgs:
+      - vips
+      - vips-devel
+      - vips-tools
+  when: check_vips is failed
+  
+- name: start nginx
+  ansible.builtin.service:
+    name: nginx
+    state: restarted
+
+- name: start puma
+  ansible.builtin.service:
+    name: puma
+    state: restarted

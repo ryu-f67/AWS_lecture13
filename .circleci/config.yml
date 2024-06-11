@@ -1,0 +1,100 @@
+version: 2.1
+orbs:
+  aws-cli: circleci/aws-cli@4.1.3
+  aws-cloudformation: orbss/aws-cloudformation@0.1.6
+  ansible-playbook: orbss/ansible-playbook@0.0.5
+  ruby: circleci/ruby@2.1.3
+
+parameters:
+  NameBase:
+    type: string
+    default: "lec13"
+
+jobs:
+  execute-cfn:
+    executor: aws-cloudformation/default
+    steps:
+      - checkout
+      - aws-cli/setup:
+          aws_access_key_id: AWS_ACCESS_KEY_ID
+          aws_secret_access_key: AWS_SECRET_ACCESS_KEY
+          region: AWS_DEFAULT_REGION
+      - aws-cloudformation/deploy:
+          stack-name: "<<pipeline.parameters.NameBase>>-vpc-stack"
+          template-file-path: "cloudformation/create-vpc.yml"
+      - aws-cloudformation/deploy:
+          stack-name: "<<pipeline.parameters.NameBase>>-sg-stack"
+          template-file-path: "cloudformation/create-securitygroup.yml"
+      - aws-cloudformation/deploy:
+          stack-name: "<<pipeline.parameters.NameBase>>-resources-stack"
+          template-file-path: "cloudformation/create-resources.yml"
+          parameter-overrides: "RDSpassword=$AWS_DB_PW"
+          capabilities: CAPABILITY_NAMED_IAM
+      - run:
+          name: store AWS vars to ENV vars
+          command: |
+            set -x
+            echo export AWS_EC2_PUBLIC=$(aws cloudformation describe-stacks --stack-name <<pipeline.parameters.NameBase>>-resources-stack --query 'Stacks[].Outputs[?OutputKey==`EC2publicIP`].OutputValue' --output text) >> $BASH_ENV
+            echo export AWS_DB_USER=$(aws cloudformation describe-stacks --stack-name <<pipeline.parameters.NameBase>>-resources-stack --query 'Stacks[].Outputs[?OutputKey==`DBuser`].OutputValue' --output text) >> $BASH_ENV
+            echo export AWS_DB_PW=$(aws cloudformation describe-stacks --stack-name <<pipeline.parameters.NameBase>>-resources-stack --query 'Stacks[].Outputs[?OutputKey==`DBpassword`].OutputValue' --output text) >> $BASH_ENV
+            echo export AWS_DB_HOST=$(aws cloudformation describe-stacks --stack-name <<pipeline.parameters.NameBase>>-resources-stack --query 'Stacks[].Outputs[?OutputKey==`DBhost`].OutputValue' --output text) >> $BASH_ENV
+            echo export AWS_S3_BUCKET=$(aws cloudformation describe-stacks --stack-name <<pipeline.parameters.NameBase>>-resources-stack --query 'Stacks[].Outputs[?OutputKey==`S3bucketName`].OutputValue' --output text) >> $BASH_ENV
+            echo export AWS_ALB_HOST=$(aws cloudformation describe-stacks --stack-name <<pipeline.parameters.NameBase>>-resources-stack --query 'Stacks[].Outputs[?OutputKey==`ALBendpoint`].OutputValue' --output text) >> $BASH_ENV
+            source "$BASH_ENV"
+      - run:
+          command: 
+            cp $BASH_ENV bash.env
+      - persist_to_workspace:
+          root: .
+          paths:
+            - bash.env
+  execute-ansible:
+    executor: ansible-playbook/default
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          command: 
+            cat bash.env >> $BASH_ENV
+      - add_ssh_keys:
+          fingerprints:
+            - SHA256:we33W0k6+heNTP5CCOwGXjm3kLkdzXPtJamMSH7bIio
+      - ansible-playbook/install:
+          version: 2.9.23
+      - run:
+          name: run ansible-playbook
+          command: ansible-playbook -i ${AWS_EC2_PUBLIC}, ansible/playbook.yml
+          no_output_timeout: 30m
+  execute-serverspec:
+    executor: ruby/default
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          command: 
+            cat bash.env >> $BASH_ENV
+      - ruby/install:
+          version: '3.2.3'
+      - run:
+          name: bundle install
+          command: |
+            cd serverspec
+            bundle install
+      - run:
+          name: execute serverspec
+          command: |
+            cd serverspec
+            bundle exec rake spec
+            
+workflows:
+  lecture13:
+    jobs:
+      - execute-cfn
+      - execute-ansible:
+          requires:
+            - execute-cfn
+      - execute-serverspec:
+          requires:
+            - execute-ansible

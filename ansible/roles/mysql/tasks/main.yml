@@ -1,0 +1,53 @@
+---
+# tasks file for mysql
+- name: check if mysql is installed
+  ansible.builtin.shell: bash -lc "mysql --version"
+  register: check_mysql
+  changed_when: no
+  ignore_errors: yes
+
+- name: remove the MariaDB
+  ansible.builtin.yum:
+    name: mariadb-server
+    state: absent
+  become: yes
+  when: check_mysql is failed
+
+- name: install mysql
+  ansible.builtin.get_url:
+    url: https://repo.mysql.com/mysql80-community-release-el7-11.noarch.rpm
+    dest: /mysql80-community-release-el7-11.noarch.rpm
+  become: yes
+  when: check_mysql is failed
+
+- name: install mysql repo
+  ansible.builtin.yum: 
+    name: /mysql80-community-release-el7-11.noarch.rpm
+  become: yes
+  when: check_mysql is failed
+
+- name: install mysql community packages
+  ansible.builtin.yum:
+    name: 
+      - mysql-community-devel
+      - mysql-community-server
+    state: latest
+  become: yes
+  when: check_mysql is failed
+
+- name: create log file for mysql
+  ansible.builtin.file:
+    path: /var/log/mysqld.log
+    state: touch
+  when: check_mysql is failed
+
+- name: start mysql
+  ansible.builtin.service:
+    name: mysqld
+    state: started
+    enabled: yes
+    
+- name: deploy database.yaml
+  template:
+    src: templates/database.yml.j2
+    dest: /home/{{ ansible_user }}/raisetech-live8-sample-app/config/database.yml

@@ -1,0 +1,257 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: create AWS resources for lecture13
+
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - Label: 
+          default: Name base
+        Parameters: 
+          - Namebase
+      - Label: 
+          default: EC2 Config
+        Parameters: 
+          - KeyPair
+      - Label: 
+          default: RDS Config
+        Parameters: 
+          - DBid
+          - DBname
+          - RDSUsername
+          - RDSpassword
+          - RDSAZ
+      - Label: 
+          default: ALB Config
+        Parameters: 
+          - ALBname
+      - Label: 
+          default: S3 Config
+        Parameters: 
+          - S3bucketname
+    ParameterLabels: 
+      KeyPair: 
+        default: KeyPair
+      DBid: 
+        default: DataBase ID
+      DBname: 
+        default: DataBase Name
+      RDSUsername: 
+        default: RDS username
+      RDSpassword: 
+        default: RDS password
+      RDSAZ:
+        default: RDS AZ
+      ALBname:
+        default: ALB Name
+      S3bucketname:
+        default: S3bucket Name
+
+Parameters: 
+  Namebase:
+    Type: String
+    Default: rt-lec
+  
+  KeyPair:
+    Description: select a key pair
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: for_ansible_keypair
+
+  DBid:
+    Type: String
+    Default: my-db-instance
+
+  DBname:
+    Type: String
+    Default: mydb
+  
+  RDSUsername:
+    Type: String
+    Default: admin
+  
+  RDSpassword:
+    NoEcho: true
+    Type: String
+    Default: ''
+  
+  RDSAZ:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-northeast-1a
+
+  ALBname:
+    Type: String
+    Default: lecture13-alb-for-raisetech
+  
+  S3bucketname:
+    Type: String
+    Default: mybucket-for-raisetech-lecture
+
+Resources: 
+  # EC2作成
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda 
+          Ebs:
+            VolumeType: gp2 
+            DeleteOnTermination: true 
+            VolumeSize: 20
+      IamInstanceProfile: !Ref InstanceProfile
+      ImageId: ami-073abd2f5d8802aca
+      InstanceType: t2.micro
+      KeyName: !Ref KeyPair
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          SubnetId: !ImportValue PublicSubnetAId
+          GroupSet:
+            - !ImportValue EC2SecurityGroupId
+      Tags:
+        - Key: Name
+          Value: !Sub ${Namebase}-EC2
+      UserData: !Base64 |
+        #!/bin/bash -ex
+        sudo yum update -y
+  
+  # RDS作成
+  rdsDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: This DBSubnet Group is for RDS
+      SubnetIds:
+        - !ImportValue PrivateSubnetAId
+        - !ImportValue PrivateSubnetCId
+      Tags:
+        - Key: Name
+          Value: !Sub ${Namebase}-RDS-SubnetGroup
+
+  rdsDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: 20
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: false
+      AvailabilityZone: !Ref RDSAZ
+      BackupRetentionPeriod: 0
+      DBInstanceClass: db.t3.micro
+      DBInstanceIdentifier: !Ref DBid
+      DBName: !Ref DBname
+      DBSubnetGroupName: !Ref rdsDBSubnetGroup
+      Engine: mysql
+      EngineVersion: 8.0.35
+      MasterUsername: !Ref RDSUsername
+      MasterUserPassword: !Ref RDSpassword
+      MultiAZ: false
+      Port: 3306
+      PubliclyAccessible: false
+      StorageType: gp2
+      Tags:
+        - Key: Name
+          Value: !Sub ${Namebase}-RDS
+      VPCSecurityGroups:
+        - !ImportValue RDSSecurityGroupId
+  
+  # ALB作成
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: ipv4
+      Name: !Ref ALBname
+      SecurityGroups: 
+        - !ImportValue ALBSecurityGroupId
+      Subnets: 
+        - !ImportValue PublicSubnetAId
+        - !ImportValue PublicSubnetCId
+      Tags: 
+        - Key: Name
+          Value: !Sub ${Namebase}-alb
+      Type: application
+  
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      IpAddressType: ipv4
+      Name: !Sub ${Namebase}-alb-targetgroup
+      Port: 80
+      Protocol: HTTP
+      ProtocolVersion: HTTP1
+      Tags: 
+        - Key: Name
+          Value: !Sub ${Namebase}-alb-targetgroup
+      Targets: 
+        - Id: !Ref EC2Instance
+      TargetType: instance
+      VpcId: !ImportValue VPCId
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions: 
+        - TargetGroupArn: !Ref ALBTargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+  
+  # S3作成
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties: 
+      BucketName: !Ref S3bucketname
+      Tags:
+        - Key: Name
+          Value: !Sub ${Namebase}-s3-bucket
+  
+  # IAMロール作成
+  S3accessIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument: 
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Description: grant EC2 instance access permissions to S3
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+      Policies: 
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource:
+                  - !Sub 'arn:aws:s3:::${S3Bucket}'
+                  - !Sub 'arn:aws:s3:::${S3Bucket}/*'
+      RoleName: !Sub ${Namebase}-S3FullAccess-role
+      Tags: 
+        - Key: Name
+          Value: !Sub ${Namebase}-S3FullAccess-role
+  
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub ${Namebase}-InstanceProfile
+      Path: /
+      Roles:
+        - !Ref S3accessIAMRole
+
+Outputs:
+  EC2publicIP:
+    Value: !GetAtt EC2Instance.PublicIp
+  DBuser:
+    Value: !Ref RDSUsername
+  DBpassword:
+    Value: !Ref RDSpassword
+  DBhost:
+    Value: !GetAtt rdsDBInstance.Endpoint.Address
+  S3bucketName:
+    Value: !Ref S3bucketname
+  ALBendpoint:
+    Value: !GetAtt ALB.DNSName
+
